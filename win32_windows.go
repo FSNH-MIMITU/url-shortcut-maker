@@ -42,10 +42,12 @@ var (
 	procGetDeviceCaps    = modGdi32.NewProc("GetDeviceCaps")
 	procCreateFontW      = modGdi32.NewProc("CreateFontW")
 	procCreateSolidBrush = modGdi32.NewProc("CreateSolidBrush")
+	procDeleteObject     = modGdi32.NewProc("DeleteObject")
 	procSetBkMode        = modGdi32.NewProc("SetBkMode")
 	procSetTextColor     = modGdi32.NewProc("SetTextColor")
 
-	procGetModuleHandleW = modKernel32.NewProc("GetModuleHandleW")
+	procGetModuleHandleW         = modKernel32.NewProc("GetModuleHandleW")
+	procGetUserDefaultUILanguage = modKernel32.NewProc("GetUserDefaultUILanguage")
 
 	procGetOpenFileNameW     = modComdlg32.NewProc("GetOpenFileNameW")
 	procInitCommonControlsEx = modComctl32.NewProc("InitCommonControlsEx")
@@ -93,9 +95,11 @@ const (
 
 	emSetSel = 0x00B1
 
-	cbAddString = 0x0143
-	cbSetCurSel = 0x014E
-	cbGetCurSel = 0x0147
+	cbAddString    = 0x0143
+	cbSetCurSel    = 0x014E
+	cbGetCurSel    = 0x0147
+	cbResetContent = 0x014B
+	cbnSelChange   = 1
 
 	stmSetImage = 0x0172
 	imageIcon   = 1

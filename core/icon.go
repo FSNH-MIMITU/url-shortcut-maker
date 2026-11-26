@@ -25,6 +25,15 @@ import (
 // 生成的 ico 中包含的尺寸（从大到小）。
 var icoSizes = []int{256, 128, 64, 48, 32, 24, 16}
 
+// 图片处理的哨兵错误，便于界面层本地化。
+var (
+	ErrImageUnsupported = errors.New("不支持的图片格式")
+	ErrImageEmpty       = errors.New("图片为空")
+	ErrImageSizeInvalid = errors.New("图片尺寸无效")
+	ErrImageTooLarge    = errors.New("图片像素过大，请使用较小的图片")
+	ErrImageRead        = errors.New("无法读取图片文件")
+)
+
 type icoEntry struct {
 	size  int
 	data  []byte
@@ -40,7 +49,7 @@ func DecodeImage(path string) (image.Image, error) {
 	defer f.Close()
 	img, _, err := image.Decode(f)
 	if err != nil {
-		return nil, errors.New("不支持的图片格式")
+		return nil, ErrImageUnsupported
 	}
 	return img, nil
 }
@@ -48,14 +57,14 @@ func DecodeImage(path string) (image.Image, error) {
 // BuildICO 将任意图片转换为多尺寸 ico 字节。
 func BuildICO(src image.Image) ([]byte, error) {
 	if src == nil {
-		return nil, errors.New("图片为空")
+		return nil, ErrImageEmpty
 	}
 	b := src.Bounds()
 	if b.Dx() <= 0 || b.Dy() <= 0 {
-		return nil, errors.New("图片尺寸无效")
+		return nil, ErrImageSizeInvalid
 	}
 	if b.Dx()*b.Dy() > 80*1000*1000 {
-		return nil, errors.New("图片像素过大，请使用较小的图片")
+		return nil, ErrImageTooLarge
 	}
 
 	entries := make([]icoEntry, 0, len(icoSizes))
@@ -169,7 +178,7 @@ func IsICOData(data []byte) bool {
 func PrepareIcon(srcPath, baseName, destDir string) (string, error) {
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
-		return "", fmt.Errorf("无法读取图片文件：%v", err)
+		return "", fmt.Errorf("%w：%v", ErrImageRead, err)
 	}
 	sum := sha1.Sum(data)
 	dst := filepath.Join(destDir, SanitizeName(baseName)+"-"+hex.EncodeToString(sum[:5])+".ico")

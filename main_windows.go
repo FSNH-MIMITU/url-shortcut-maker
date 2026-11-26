@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,8 +11,6 @@ import (
 
 	"github.com/FSNH-MIMITU/url-shortcut-maker/core"
 )
-
-const windowTitle = "网址快捷方式生成器"
 
 const (
 	clientW = 640
@@ -31,6 +30,7 @@ const (
 	idHintBrowser
 	idHintName
 	idSubtitle
+	idLang
 )
 
 const (
@@ -46,10 +46,16 @@ type app struct {
 	hURL, hIconPath, hPick, hBrowser, hName   uintptr
 	hPreview, hGenerate, hStatus              uintptr
 	hSubtitle, hDesc, hHintBrowser, hHintName uintptr
+	hLabelURL, hLabelIcon, hLabelOpenWith     uintptr
+	hLabelName, hLabelPreview, hLabelLang     uintptr
+	hLang                                     uintptr
+
+	controls []uintptr
 
 	font  uintptr
 	brush uintptr
 	dpi   int32
+	lang  string
 
 	colorLabel uint32
 	colorHint  uint32
@@ -75,6 +81,7 @@ func main() {
 		colorOK:    rgb(0x05, 0x96, 0x69),
 		colorErr:   rgb(0xDC, 0x26, 0x26),
 	}
+	ui.lang = detectSystemLanguage()
 	ui.hInst = syscallN(procGetModuleHandleW, 0)
 	ui.init()
 	ui.run()
@@ -86,7 +93,7 @@ func (a *app) init() {
 
 	a.dpi = getDPI()
 	a.brush = syscallN(procCreateSolidBrush, uintptr(rgb(0xF7, 0xF8, 0xFA)))
-	a.font = a.createFont(9, fwNormal)
+	a.font = a.createFont(9, fwNormal, fontFor(a.lang))
 	a.browsers = core.DetectBrowsers()
 	a.registerClass()
 	a.createWindow()
@@ -105,13 +112,13 @@ func getDPI() int32 {
 	return dpi
 }
 
-func (a *app) createFont(pt int32, weight int32) uintptr {
+func (a *app) createFont(pt int32, weight int32, family string) uintptr {
 	height := -(pt * a.dpi / 72)
 	return syscallN(procCreateFontW,
 		uintptr(height), 0, 0, 0,
 		uintptr(weight), 0, 0, 0,
 		defaultCharset, 0, 0, clearTypeQuality, 0,
-		uintptr(unsafe.Pointer(utf16Ptr("Microsoft YaHei UI"))))
+		uintptr(unsafe.Pointer(utf16Ptr(family))))
 }
 
 func (a *app) registerClass() {
@@ -130,7 +137,7 @@ func (a *app) registerClass() {
 		lpszClassName: utf16Ptr("QuickLinkMakerWnd"),
 	}
 	if syscallN(procRegisterClassExW, uintptr(unsafe.Pointer(&wc))) == 0 {
-		a.fatal("窗口类注册失败")
+		a.fatal(tr(a.lang).ErrWindowClass)
 	}
 }
 
@@ -151,12 +158,12 @@ func (a *app) createWindow() {
 	a.hwnd = syscallN(procCreateWindowExW,
 		0,
 		uintptr(unsafe.Pointer(utf16Ptr("QuickLinkMakerWnd"))),
-		uintptr(unsafe.Pointer(utf16Ptr(windowTitle))),
+		uintptr(unsafe.Pointer(utf16Ptr(tr(a.lang).Title))),
 		uintptr(style),
 		uintptr(x), uintptr(y), uintptr(w), uintptr(h),
 		0, 0, a.hInst, 0)
 	if a.hwnd == 0 {
-		a.fatal("窗口创建失败")
+		a.fatal(tr(a.lang).ErrWindowCreate)
 	}
 }
 
@@ -194,11 +201,20 @@ func wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
 	case wmCommand:
 		id := int(wParam & 0xFFFF)
 		code := int((wParam >> 16) & 0xFFFF)
-		if code == 0 {
-			switch id {
-			case idPick:
+		switch id {
+		case idLang:
+			if code == cbnSelChange {
+				sel := int(syscallN(procSendMessageW, a.hLang, cbGetCurSel, 0, 0))
+				if sel >= 0 && sel < len(languages) {
+					a.applyLanguage(languages[sel].code)
+				}
+			}
+		case idPick:
+			if code == 0 {
 				a.pickImage()
-			case idGenerate:
+			}
+		case idGenerate:
+			if code == 0 {
 				a.generate()
 			}
 		}
@@ -241,6 +257,7 @@ func (a *app) ctl(class, text string, style, exStyle uint32, x, y, w, h int32, i
 		a.hwnd, uintptr(id), a.hInst, 0)
 	if hwnd != 0 {
 		syscallN(procSendMessageW, hwnd, wmSetFont, a.font, 1)
+		a.controls = append(a.controls, hwnd)
 	}
 	return hwnd
 }
@@ -250,37 +267,115 @@ func (a *app) static(text string, x, y, w, h int32) uintptr {
 }
 
 func (a *app) createControls() {
-	a.hSubtitle = a.ctl("STATIC", "填写网址 · 选择图标 · 一键生成桌面快捷方式", ssLeft, 0, 24, 18, 592, 22, idSubtitle)
+	s := tr(a.lang)
 
-	a.static("网址", 24, 62, 74, 24)
+	a.hSubtitle = a.ctl("STATIC", s.Subtitle, ssLeft, 0, 24, 18, 592, 22, idSubtitle)
+
+	a.hLabelURL = a.static(s.LabelURL, 24, 62, 74, 24)
 	a.hURL = a.ctl("EDIT", "", wsBorder|wsTabStop|esAutoHScroll, 0, 104, 60, 512, 30, idURL)
 
-	a.static("图标", 24, 106, 74, 24)
+	a.hLabelIcon = a.static(s.LabelIcon, 24, 106, 74, 24)
 	a.hIconPath = a.ctl("EDIT", "", wsBorder|wsTabStop|esAutoHScroll|esReadOnly, 0, 104, 104, 392, 30, idIconPath)
-	a.hPick = a.ctl("BUTTON", "浏览…", wsTabStop, 0, 506, 103, 110, 32, idPick)
+	a.hPick = a.ctl("BUTTON", s.Browse, wsTabStop, 0, 506, 103, 110, 32, idPick)
 
-	a.static("打开方式", 24, 152, 74, 24)
+	a.hLabelOpenWith = a.static(s.LabelOpenWith, 24, 152, 74, 24)
 	a.hBrowser = a.ctl("COMBOBOX", "", cbsDropDownList|wsTabStop|wsVScroll, 0, 104, 148, 260, 220, idBrowser)
-	a.hHintBrowser = a.ctl("STATIC", "未安装所选浏览器时，\n自动使用系统默认浏览器", ssLeft, 0, 376, 150, 240, 40, idHintBrowser)
+	a.hHintBrowser = a.ctl("STATIC", s.HintBrowser, ssLeft, 0, 376, 150, 240, 40, idHintBrowser)
 
-	a.static("名称", 24, 204, 74, 24)
+	a.hLabelName = a.static(s.LabelName, 24, 204, 74, 24)
 	a.hName = a.ctl("EDIT", "", wsBorder|wsTabStop|esAutoHScroll, 0, 104, 200, 260, 30, idName)
-	a.hHintName = a.ctl("STATIC", "留空自动生成", ssLeft, 0, 376, 206, 240, 22, idHintName)
+	a.hHintName = a.ctl("STATIC", s.HintName, ssLeft, 0, 376, 206, 240, 22, idHintName)
 
-	a.ctl("STATIC", "图标预览", ssLeft, 0, 24, 230, 92, 20, 0)
+	a.hLabelPreview = a.ctl("STATIC", s.LabelPreview, ssLeft, 0, 24, 230, 92, 20, 0)
 	a.hPreview = a.ctl("STATIC", "", ssIcon|ssCenterImage, wsExClientEdge, 24, 252, 96, 96, idPreview)
-	a.hDesc = a.ctl("STATIC", "快捷方式会保存到桌面。\n双击即可用所选浏览器打开网址。\n图标将根据所选图片自动生成。", ssLeft, 0, 140, 258, 476, 84, idDesc)
+	a.hDesc = a.ctl("STATIC", s.Desc, ssLeft, 0, 140, 258, 476, 84, idDesc)
 
-	a.hGenerate = a.ctl("BUTTON", "生成快捷方式", bsDefPushButton|wsTabStop, 0, 472, 368, 144, 40, idGenerate)
-	a.hStatus = a.ctl("STATIC", "填写网址并选择图标，然后点击「生成快捷方式」。", ssLeft, 0, 24, 424, 592, 22, idStatus)
+	a.hLabelLang = a.static(s.LabelLang, 24, 374, 64, 22)
+	a.hLang = a.ctl("COMBOBOX", "", cbsDropDownList|wsTabStop|wsVScroll, 0, 92, 368, 240, 300, idLang)
 
-	syscallN(procSendMessageW, a.hBrowser, cbAddString, 0, uintptr(unsafe.Pointer(utf16Ptr("默认浏览器（推荐）"))))
-	for _, b := range a.browsers {
-		syscallN(procSendMessageW, a.hBrowser, cbAddString, 0, uintptr(unsafe.Pointer(utf16Ptr(b.Name))))
+	a.hGenerate = a.ctl("BUTTON", s.Generate, bsDefPushButton|wsTabStop, 0, 472, 368, 144, 40, idGenerate)
+	a.hStatus = a.ctl("STATIC", s.StatusInit, ssLeft, 0, 24, 424, 592, 22, idStatus)
+
+	for _, l := range languages {
+		p := utf16Ptr(l.name)
+		syscallN(procSendMessageW, a.hLang, cbAddString, 0, uintptr(unsafe.Pointer(p)))
+		runtime.KeepAlive(p)
 	}
-	syscallN(procSendMessageW, a.hBrowser, cbSetCurSel, 0, 0)
+	if idx := languageIndex(a.lang); idx >= 0 {
+		syscallN(procSendMessageW, a.hLang, cbSetCurSel, uintptr(idx), 0)
+	}
+
+	a.fillBrowserList(s.DefaultBrowser, 0)
 
 	syscallN(procSetFocus, a.hURL)
+}
+
+// fillBrowserList 重建浏览器下拉框的选项，并尽量保留原来的选中项。
+func (a *app) fillBrowserList(defaultText string, keep int) {
+	p := utf16Ptr(defaultText)
+	syscallN(procSendMessageW, a.hBrowser, cbAddString, 0, uintptr(unsafe.Pointer(p)))
+	runtime.KeepAlive(p)
+	for _, b := range a.browsers {
+		bp := utf16Ptr(b.Name)
+		syscallN(procSendMessageW, a.hBrowser, cbAddString, 0, uintptr(unsafe.Pointer(bp)))
+		runtime.KeepAlive(bp)
+	}
+	if keep < 0 || keep > len(a.browsers) {
+		keep = 0
+	}
+	syscallN(procSendMessageW, a.hBrowser, cbSetCurSel, uintptr(keep), 0)
+}
+
+// applyLanguage 切换界面语言：更新全部文案、字体，并重建依赖语言的列表项。
+func (a *app) applyLanguage(code string) {
+	a.lang = code
+	s := tr(code)
+	a.applyFont(code)
+
+	set := func(h uintptr, text string) {
+		if h != 0 {
+			p := utf16Ptr(text)
+			syscallN(procSetWindowTextW, h, uintptr(unsafe.Pointer(p)))
+			runtime.KeepAlive(p)
+		}
+	}
+	set(a.hwnd, s.Title)
+	set(a.hSubtitle, s.Subtitle)
+	set(a.hLabelURL, s.LabelURL)
+	set(a.hLabelIcon, s.LabelIcon)
+	set(a.hLabelOpenWith, s.LabelOpenWith)
+	set(a.hLabelName, s.LabelName)
+	set(a.hLabelPreview, s.LabelPreview)
+	set(a.hLabelLang, s.LabelLang)
+	set(a.hHintBrowser, s.HintBrowser)
+	set(a.hHintName, s.HintName)
+	set(a.hDesc, s.Desc)
+	set(a.hPick, s.Browse)
+	set(a.hGenerate, s.Generate)
+
+	if idx := languageIndex(code); idx >= 0 {
+		syscallN(procSendMessageW, a.hLang, cbSetCurSel, uintptr(idx), 0)
+	}
+
+	keep := int(syscallN(procSendMessageW, a.hBrowser, cbGetCurSel, 0, 0))
+	syscallN(procSendMessageW, a.hBrowser, cbResetContent, 0, 0)
+	a.fillBrowserList(s.DefaultBrowser, keep)
+
+	if a.statusKind == statusNeutral {
+		a.setStatus(s.StatusInit, statusNeutral)
+	}
+	syscallN(procInvalidateRect, a.hwnd, 0, 1)
+}
+
+// applyFont 按界面语言更换字体（确保 CJK / 韩文 / 西里尔字形可正常显示）。
+func (a *app) applyFont(code string) {
+	if a.font != 0 {
+		syscallN(procDeleteObject, a.font)
+	}
+	a.font = a.createFont(9, fwNormal, fontFor(code))
+	for _, h := range a.controls {
+		syscallN(procSendMessageW, h, wmSetFont, a.font, 1)
+	}
 }
 
 func getText(h uintptr) string {
@@ -293,11 +388,11 @@ func getText(h uintptr) string {
 	return syscall.UTF16ToString(buf)
 }
 
-func openImageDialog(owner uintptr) string {
+func openImageDialog(owner uintptr, s uiStrings) string {
 	var buf [1024]uint16
-	filter := "图片文件 (*.png;*.jpg;*.jpeg;*.ico;*.gif;*.bmp;*.webp)\x00" +
+	filter := s.FilterImages + " (*.png;*.jpg;*.jpeg;*.ico;*.gif;*.bmp;*.webp)\x00" +
 		"*.png;*.jpg;*.jpeg;*.ico;*.gif;*.bmp;*.webp\x00" +
-		"所有文件 (*.*)\x00*.*\x00\x00"
+		s.FilterAll + " (*.*)\x00*.*\x00\x00"
 	ofn := openfilename{
 		lStructSize:  uint32(unsafe.Sizeof(openfilename{})),
 		hwndOwner:    owner,
@@ -305,7 +400,7 @@ func openImageDialog(owner uintptr) string {
 		nFilterIndex: 1,
 		lpstrFile:    &buf[0],
 		nMaxFile:     uint32(len(buf)),
-		lpstrTitle:   utf16Ptr("选择图标图片"),
+		lpstrTitle:   utf16Ptr(s.DlgPickTitle),
 		flags:        ofnFileMustExist | ofnPathMustExist | ofnNoChangeDir | ofnExplorer,
 	}
 	if syscallN(procGetOpenFileNameW, uintptr(unsafe.Pointer(&ofn))) == 0 {
@@ -326,19 +421,24 @@ func (a *app) loadIconFile(path string, size int32) uintptr {
 }
 
 func (a *app) pickImage() {
-	path := openImageDialog(a.hwnd)
+	s := tr(a.lang)
+	path := openImageDialog(a.hwnd, s)
 	if path == "" {
 		return
 	}
 	tmpDir := filepath.Join(os.TempDir(), "QuickLinkMakerPreview")
 	icoPath, err := core.PrepareIcon(path, "preview", tmpDir)
 	if err != nil {
-		a.alert("无法处理该图片：" + err.Error())
+		if isImageError(err) {
+			a.alert(errText(err, s))
+		} else {
+			a.alert(s.ErrImageProcess + err.Error())
+		}
 		return
 	}
 	h := a.loadIconFile(icoPath, a.sc(80))
 	if h == 0 {
-		a.alert("该图片无法作为图标使用，请换一张试试。")
+		a.alert(s.ErrImageInvalid)
 		return
 	}
 	if a.hPreviewIcon != 0 {
@@ -347,24 +447,27 @@ func (a *app) pickImage() {
 	a.hPreviewIcon = h
 	syscallN(procSendMessageW, a.hPreview, stmSetImage, imageIcon, h)
 	a.selectedImage = path
-	syscallN(procSetWindowTextW, a.hIconPath, uintptr(unsafe.Pointer(utf16Ptr(path))))
-	a.setStatus("图标已选择："+filepath.Base(path), statusOK)
+	p := utf16Ptr(path)
+	syscallN(procSetWindowTextW, a.hIconPath, uintptr(unsafe.Pointer(p)))
+	runtime.KeepAlive(p)
+	a.setStatus(s.StatusIconPicked+filepath.Base(path), statusOK)
 }
 
 func (a *app) generate() {
+	s := tr(a.lang)
 	rawURL := strings.TrimSpace(getText(a.hURL))
 	if rawURL == "" {
-		a.alert("请先填写要打开的网址。")
+		a.alert(s.ErrNeedURL)
 		syscallN(procSetFocus, a.hURL)
 		return
 	}
 	if a.selectedImage == "" {
-		a.alert("请先点击「浏览…」选择图标图片。")
+		a.alert(s.ErrNeedIcon)
 		return
 	}
 	urlStr, err := core.NormalizeURL(rawURL)
 	if err != nil {
-		a.alert(err.Error())
+		a.alert(errText(err, s))
 		syscallN(procSetFocus, a.hURL)
 		return
 	}
@@ -377,12 +480,16 @@ func (a *app) generate() {
 
 	iconsDir, err := core.IconsDir()
 	if err != nil {
-		a.alert("无法创建图标目录：" + err.Error())
+		a.alert(s.ErrIconsDir + err.Error())
 		return
 	}
 	icoPath, err := core.PrepareIcon(a.selectedImage, name, iconsDir)
 	if err != nil {
-		a.alert("处理图标失败：" + err.Error())
+		if isImageError(err) {
+			a.alert(errText(err, s))
+		} else {
+			a.alert(s.ErrIconProcess + err.Error())
+		}
 		return
 	}
 
@@ -400,13 +507,13 @@ func (a *app) generate() {
 		if _, statErr := os.Stat(b.Path); statErr == nil {
 			chosen = &b
 		} else {
-			note = b.Name + " 无法使用，已改用系统默认浏览器。\n\n"
+			note = fmt.Sprintf(s.BrowserFallbackFmt, b.Name)
 		}
 	}
 
 	lnkPath := core.UniquePath(desktop, name, ".lnk")
-	desc := "打开 " + urlStr
-	openWith := "系统默认浏览器"
+	desc := fmt.Sprintf(s.ShortcutDescFmt, urlStr)
+	openWith := s.SystemDefault
 
 	var createErr error
 	if chosen != nil {
@@ -416,15 +523,14 @@ func (a *app) generate() {
 		createErr = core.CreateShortcut(lnkPath, urlStr, "", "", desc, icoPath)
 	}
 	if createErr != nil {
-		a.setStatus("生成失败："+createErr.Error(), statusError)
-		a.alert("生成快捷方式失败：\n" + createErr.Error())
+		a.setStatus(s.ErrCreateFailed+createErr.Error(), statusError)
+		a.alert(s.ErrCreateShortcut + createErr.Error())
 		return
 	}
 
-	a.setStatus("已生成："+filepath.Base(lnkPath), statusOK)
-	a.info(note + "已在桌面生成快捷方式：\n" + filepath.Base(lnkPath) +
-		"\n\n打开方式：" + openWith +
-		"\n双击快捷方式即可打开该网址。")
+	a.setStatus(s.StatusCreated+filepath.Base(lnkPath), statusOK)
+	a.info(note + fmt.Sprintf(s.InfoCreatedFmt, filepath.Base(lnkPath)) +
+		fmt.Sprintf(s.InfoOpenWithFmt, openWith) + s.InfoTail)
 }
 
 func (a *app) setStatus(text string, kind int) {
@@ -434,23 +540,22 @@ func (a *app) setStatus(text string, kind int) {
 }
 
 func (a *app) alert(msg string) {
-	syscallN(procMessageBoxW, a.hwnd,
-		uintptr(unsafe.Pointer(utf16Ptr(msg))),
-		uintptr(unsafe.Pointer(utf16Ptr(windowTitle))),
-		mbOK|mbIconWarning)
+	a.messageBox(msg, tr(a.lang).Title, mbOK|mbIconWarning)
 }
 
 func (a *app) info(msg string) {
-	syscallN(procMessageBoxW, a.hwnd,
-		uintptr(unsafe.Pointer(utf16Ptr(msg))),
-		uintptr(unsafe.Pointer(utf16Ptr("生成成功"))),
-		mbOK|mbIconInformation)
+	a.messageBox(msg, tr(a.lang).InfoTitle, mbOK|mbIconInformation)
 }
 
 func (a *app) fatal(msg string) {
-	syscallN(procMessageBoxW, 0,
-		uintptr(unsafe.Pointer(utf16Ptr(msg))),
-		uintptr(unsafe.Pointer(utf16Ptr(windowTitle))),
-		mbOK|mbIconError)
+	a.messageBox(msg, tr(a.lang).Title, mbOK|mbIconError)
 	os.Exit(1)
+}
+
+func (a *app) messageBox(msg, title string, flags uint32) {
+	mp := utf16Ptr(msg)
+	tp := utf16Ptr(title)
+	syscallN(procMessageBoxW, a.hwnd, uintptr(unsafe.Pointer(mp)), uintptr(unsafe.Pointer(tp)), uintptr(flags))
+	runtime.KeepAlive(mp)
+	runtime.KeepAlive(tp)
 }

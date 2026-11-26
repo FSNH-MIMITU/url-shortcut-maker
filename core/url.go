@@ -9,26 +9,34 @@ import (
 
 var schemeRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
 
+// 网址校验的哨兵错误，便于界面层本地化。
+var (
+	ErrURLRequired          = errors.New("网址不能为空")
+	ErrURLInvalid           = errors.New("网址格式不正确")
+	ErrURLHostRequired      = errors.New("请填写完整的网址，例如 www.example.com")
+	ErrURLSchemeUnsupported = errors.New("仅支持 http / https 网址")
+)
+
 // NormalizeURL 补全协议并校验网址。
 func NormalizeURL(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
-		return "", errors.New("网址不能为空")
+		return "", ErrURLRequired
 	}
 	if !schemeRe.MatchString(s) {
 		s = "https://" + s
 	}
 	u, err := url.Parse(s)
 	if err != nil {
-		return "", errors.New("网址格式不正确")
+		return "", ErrURLInvalid
 	}
 	if u.Host == "" || u.Hostname() == "" {
-		return "", errors.New("请填写完整的网址，例如 www.example.com")
+		return "", ErrURLHostRequired
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "http", "https":
 	default:
-		return "", errors.New("仅支持 http / https 网址")
+		return "", ErrURLSchemeUnsupported
 	}
 	return u.String(), nil
 }

@@ -11,7 +11,8 @@ A small Windows tool that turns a URL plus an image of your choice into a deskto
 - 可选择用哪个浏览器打开：启动时自动扫描本机已安装的浏览器（Edge、Chrome、Firefox、Brave、Opera、Vivaldi、360、QQ、搜狗、傲游、IE）
 - 所选浏览器不存在时自动回落到系统默认浏览器
 - 快捷方式名称可自定义，留空则按域名自动生成；重名自动加序号
-- 单文件 exe（约 3 MB），无需安装、无需运行库，仅支持 64 位 Windows 10 / 11
+- 界面支持 10 种语言（简体中文、繁體中文、English、日本語、한국어、Deutsch、Français、Español、Português、Русский），启动时自动跟随系统语言，也可在窗口左下角随时切换，切换即时生效
+- 单文件 exe（约 3.2 MB），无需安装、无需运行库，仅支持 64 位 Windows 10 / 11
 
 ## 下载
 
@@ -27,6 +28,8 @@ A small Windows tool that turns a URL plus an image of your choice into a deskto
 4. 点击「生成快捷方式」（或直接回车）
 
 桌面会出现带所选图标的快捷方式，双击即用指定浏览器打开该网址。
+
+界面左下角可切换界面语言；首次启动会按 Windows 显示语言自动选择。
 
 ## 从源码构建
 
@@ -50,6 +53,7 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
   - 指定浏览器时，目标为该浏览器的 exe，参数为带引号的网址；
   - 使用默认浏览器时，目标直接是网址本身，由系统按默认程序打开。
 - 浏览器检测读取注册表 `App Paths`（HKLM / HKCU / WOW6432Node），再回退到常见安装目录，并校验 exe 是否存在。
+- 界面文案集中在 `i18n_windows.go`：启动时用 `GetUserDefaultUILanguage` 匹配系统显示语言，未收录的语言回落到英文；切换语言时同步更换字体（雅黑 / Segoe UI / Yu Gothic UI / Malgun Gothic）以保证各语种字形正常显示。
 - 转换后的 `.ico` 保存在 `%LOCALAPPDATA%\QuickLinkMaker\icons\`，由快捷方式通过 `IconLocation` 引用。**该目录不要删除**，否则快捷方式图标会丢失。
 - 图标转换使用 `golang.org/x/image` 的 Catmull-Rom 缩放；小尺寸写 BMP（32 位 BGRA + AND 掩码），128 / 256 写 PNG，兼容性最好。
 
@@ -64,11 +68,12 @@ Features:
 - Choose which browser opens the shortcut — installed browsers (Edge, Chrome, Firefox, Brave, Opera, Vivaldi, 360, QQ, Sogou, Maxthon, IE) are detected automatically on startup
 - If the chosen browser is not installed, the system default browser is used as a fallback
 - Custom shortcut name; defaults to the domain name, duplicates get a numeric suffix
-- Single ~3 MB exe, no installer and no runtime needed, 64-bit Windows 10 / 11 only
+- UI in 10 languages (Chinese Simplified/Traditional, English, Japanese, Korean, German, French, Spanish, Portuguese, Russian) — follows the system UI language on startup and can be switched at the bottom-left of the window
+- Single ~3.2 MB exe, no installer and no runtime needed, 64-bit Windows 10 / 11 only
 
 Download `url-shortcut-maker.exe` from [Releases](../../releases) and double-click it. The binary is not code-signed, so SmartScreen may warn on first run — choose *More info → Run anyway*.
 
-Usage: fill in the URL, click *Browse…* to select an icon image, pick the browser (default or specific), then click *Create shortcut*. The shortcut appears on your desktop.
+Usage: fill in the URL, click *Browse…* to select an icon image, pick the browser (default or specific), then click *Create shortcut*. The shortcut appears on your desktop. The UI language follows the Windows display language on first run and can be changed at the bottom-left of the window.
 
 Build from source with Go 1.26+:
 
