@@ -53,6 +53,34 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
 - 转换后的 `.ico` 保存在 `%LOCALAPPDATA%\QuickLinkMaker\icons\`，由快捷方式通过 `IconLocation` 引用。**该目录不要删除**，否则快捷方式图标会丢失。
 - 图标转换使用 `golang.org/x/image` 的 Catmull-Rom 缩放；小尺寸写 BMP（32 位 BGRA + AND 掩码），128 / 256 写 PNG，兼容性最好。
 
+## English
+
+**URL Shortcut Maker** — turn any URL plus an image into a Windows desktop shortcut that uses that image as its icon.
+
+Features:
+
+- Enter a URL, `https://` is added automatically and the format is validated
+- Pick a local image (PNG / JPG / JPEG / ICO / GIF / BMP / WebP); it is converted into an `.ico` with 7 sizes from 16 to 256 px
+- Choose which browser opens the shortcut — installed browsers (Edge, Chrome, Firefox, Brave, Opera, Vivaldi, 360, QQ, Sogou, Maxthon, IE) are detected automatically on startup
+- If the chosen browser is not installed, the system default browser is used as a fallback
+- Custom shortcut name; defaults to the domain name, duplicates get a numeric suffix
+- Single ~3 MB exe, no installer and no runtime needed, 64-bit Windows 10 / 11 only
+
+Download `url-shortcut-maker.exe` from [Releases](../../releases) and double-click it. The binary is not code-signed, so SmartScreen may warn on first run — choose *More info → Run anyway*.
+
+Usage: fill in the URL, click *Browse…* to select an icon image, pick the browser (default or specific), then click *Create shortcut*. The shortcut appears on your desktop.
+
+Build from source with Go 1.26+:
+
+```bash
+go install github.com/akavel/rsrc@latest
+rsrc -arch amd64 -manifest app.manifest -ico app.ico -o rsrc.syso
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+  -ldflags "-H windowsgui -s -w" -o url-shortcut-maker.exe .
+```
+
+License: [MIT](LICENSE). Third-party dependencies are BSD 3-Clause (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
+
 ## 许可证
 
 [MIT](LICENSE)。第三方依赖（Go 标准库、`golang.org/x/image`、`golang.org/x/sys`）均为 BSD 3-Clause，声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
